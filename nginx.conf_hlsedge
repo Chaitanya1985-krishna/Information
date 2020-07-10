@@ -1,0 +1,71 @@
+## user nobody;
+worker_processes  1;
+
+error_log  logs/error.log;
+error_log  logs/error.log  info;
+
+worker_rlimit_nofile 30000;
+
+##  pid  logs/nginx.pid;
+
+events {
+    worker_connections  4000;
+##  use epoll;
+##  multi_accept off;
+}
+
+http {
+    include       mime.types;
+    default_type  application/octet-stream;
+
+    access_log  logs/access.log;
+
+        sendfile    on;
+        tcp_nopush  on;
+        tcp_nodelay on;
+        open_file_cache max=200000 inactive=20s;
+        open_file_cache_valid 30s;
+        open_file_cache_min_uses 2;
+        open_file_cache_errors on;
+
+##      access_log off;
+##      keepalive_timeout  0;
+        keepalive_timeout  30;
+        reset_timedout_connection on;
+##      client_body_timeout 10;
+##      send_timeout 2;
+
+proxy_cache_path  /dev/shm/hls/cache levels=1:2 keys_zone=hls-cache:8m max_size=1000m inactive=600m;
+
+server {
+    listen 80;
+    server_name localhost;
+
+    root /dev/shm/hls;
+    proxy_temp_path /dev/shm/hls/tmp;
+
+    location /hls {
+        proxy_pass http://192.168.1.50;
+        add_header "X-Hls-Cache-Status" "Fresh data";
+    }
+
+    location ~* .(ts|trp)$ {
+        proxy_pass http://192.168.1.50;
+        proxy_cache hls-cache;
+        proxy_cache_valid 200 302 10m;
+        proxy_cache_valid 404 5s;
+        add_header "X-Hls-Cache-Status" "Cached TS";
+    }
+
+#### pass the PHP scripts to FastCGI server listening on 127.0.0.1:9000
+
+        location ~ \.php$ {
+            root           html;
+            fastcgi_pass   127.0.0.1:9000;
+            fastcgi_index  index.php;
+            fastcgi_param  SCRIPT_FILENAME  /usr/local/nginx/html$fastcgi_script_name;
+            include        fastcgi_params;
+        }
+    }
+}
+
