@@ -1,0 +1,72 @@
+##!/bin/sh
+
+## Update System
+yum update -y
+
+## Install Repos
+rpm -ihv http://yum.pgrpms.org/reporpms/8.4/pgdg-centos-8.4-2.noarch.rpm
+rpm -Uhv http://download.fedora.redhat.com/pub/epel/5/x86_64/epel-release-5-4.noarch.rpm
+rpm -ihv http://apt.sw.be/redhat/el5/en/i386/rpmforge/RPMS/checkinstall-1.6.0-3.el5.rf.i386.rpm
+sed -i.backup -e “/gpgkey/a\exclude=postgresql*” /etc/yum.repos.d/CentOS-Base.repo
+sed -i.backup -e “s/enabled=0/enabled=1/g” /etc/yum.repos.d/epel.repo
+
+## Install Requirements
+yum install -y gcc cpp make php53 php53-gd php53-bcmath php53-xml php53-mbstring php53-pgsql httpd.x86_64 postgresql.x86_64 postgresql-server.x86_64 compat-postgresql-libs.x86_64 OpenIPMI.x86_64 OpenIPMI-libs.x86_64 postgresql-devel.x86_64 curl-devel.x86_64 net-snmp-devel.x86_64 OpenIPMI-devel iksemel iksemel-devel rpm-build
+
+## DataBase Setup
+adduser zabbix
+service postgresql initdb
+sed -i.backup -e “s/ident/trust/g” /var/lib/pgsql/data/pg_hba.conf
+chkconfig postgresql on
+/etc/init.d/postgresql start
+su postgres -c “echo \”create user zabbix with password ‘z@bb1x’ createdb;\” | psql”
+su zabbix -c “createdb zabbix”
+
+## Zabbix Dowloading & Installation
+mkdir ~/install
+cd ~/install
+wget http://prdownloads.sourceforge.net/zabbix/zabbix-1.9.6.tar.gz?download
+tar zxfv zabbix-1.9.6.tar.gz
+cd ~/install/zabbix-1.9.6/create/schema
+cat postgresql.sql | psql -U zabbix zabbix
+cd ~/install/zabbix-1.9.6/create/data
+cat images_postgresql.sql | psql -U zabbix zabbix
+cat data.sql | psql -U zabbix zabbix
+
+cd ~/install/zabbix-1.9.6
+./configure –enable-server –with-postgresql –with-net-snmp –with-libcurl –with-openipmi –with-jabber –enable-agent
+checkinstall -R –nodoc –install=yes -y
+
+## Install Frontend
+sed -i.backup -e “s/post_max_size = 8M/post_max_size = 32M/g” /etc/php.ini
+sed -i.backup -e “s/max_execution_time = 30/max_execution_time = 600/g” /etc/php.ini
+sed -i.backup -e “s/max_input_time = 60/max_input_time = 600/g” /etc/php.ini
+sed -i,backup -e ‘/date.timezon/a\date.timezone = “Europe/Berlin”‘ /etc/php.ini
+
+cd ~/install/zabbix-1.9.6/frontends/php
+cp -a . /var/www/html
+cp /var/www/html/conf/zabbix.conf.php.example /var/www/html/conf/zabbix.conf.php
+sed -i.backup -e “s/MYSQL/POSTGRESQL/” /var/www/html/conf/zabbix.conf.php
+sed -i.backup -e “s/zabbix_password/z@bb1x/” /var/www/html/conf/zabbix.conf.php
+
+chown apache:apache -R /var/www/html
+
+mkdir /etc/zabbix
+cp ~/install/zabbix-1.9.6/conf/{zabbix_server.conf,zabbix_agentd.conf} /etc/zabbix
+sed -i.backup -e “s/DBUser=root/DBUser=zabbix/g” /etc/zabbix/zabbix_server.conf
+
+## cp ~/install/zabbix-1.9.6/misc/init.d/redhat/8.0/zabbix_* /etc/init.d/
+sed -i.backup -e “s|/usr/local/zabbix/bin/|/usr/local/sbin/|” /etc/init.d/zabbix_server
+sed -i.backup -e “s|/usr/local/zabbix/bin/|/usr/local/sbin/|” /etc/init.d/zabbix_agentd
+chkconfig –add zabbix_server
+chkconfig –add zabbix_agentd
+chkconfig –level 35 zabbix_server on
+chkconfig –level 35 zabbix_agentd on
+chmod 755 /etc/init.d/zabbix_server
+chmod 755 /etc/init.d/zabbix_agentd
+service zabbix_server start
+service zabbix_agentd start
+
+## Re-Starting Zabbix Service
+chkconfig httpd on
+/etc/init.d/httpd restart
