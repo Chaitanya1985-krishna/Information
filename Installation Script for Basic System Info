@@ -1,0 +1,10 @@
+##!/bin/bash
+echo “Info about the server” > /home/Info.txt
+date >> /home/Info.txt
+uname -a >> /home/Info.txt
+cat /etc/network/interfaces >> /home/Info.txt
+route >> /home/Info.txt
+
+## Path Details
+cd /home
+Check This File vim Info.txt
